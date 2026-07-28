@@ -1,0 +1,14 @@
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\bin\Debug\net10.0\Tanks.Server.exe
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\bin\Debug\net10.0\Tanks.Server.deps.json
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\bin\Debug\net10.0\Tanks.Server.runtimeconfig.json
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\bin\Debug\net10.0\Tanks.Server.dll
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\bin\Debug\net10.0\Tanks.Server.pdb
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\Tanks.Server.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\Tanks.Server.AssemblyInfoInputs.cache
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\Tanks.Server.AssemblyInfo.cs
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\Tanks.Server.csproj.CoreCompileInputs.cache
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\Tanks.Server.dll
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\refint\Tanks.Server.dll
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\Tanks.Server.pdb
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\Tanks.Server.genruntimeconfig.cache
+C:\Users\KimHyeongmo\My project (1)\Server\Tanks.Server\obj\Debug\net10.0\ref\Tanks.Server.dll
