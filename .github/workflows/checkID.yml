@@ -1,0 +1,16 @@
+name: Show repository IDs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  show-ids:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show public repository IDs
+        run: |
+          echo "Owner ID: $GITHUB_REPOSITORY_OWNER_ID"
+          echo "Repository ID: $GITHUB_REPOSITORY_ID"
