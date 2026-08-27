@@ -19,6 +19,8 @@ namespace Tanks.Complete
         public class PlayerData
         {
             public bool IsComputer;
+            public bool IsRemote;
+            public string LoginId;
             public Color TankColor;
             public GameObject UsedPrefab;
             public int ControlIndex;
@@ -49,6 +51,9 @@ namespace Tanks.Complete
         private PlayerData[] m_TankData;            // Data passed from the menu about each selected tank (at least 2, max 4)
         private int m_PlayerCount = 0;              // The number of players (2 to 4), decided from the number of PlayerData passed by the menu
         private TextMeshProUGUI m_TitleText;        // The text used to display game message. Automatically found as part of the Menu prefab
+        private bool m_IsNetworkMatch;              // Whether the server controls the lifetime of the current match.
+
+        public bool IsNetworkMatch => m_IsNetworkMatch;
 
         private void Start()
         {
@@ -84,8 +89,15 @@ namespace Tanks.Complete
             SpawnAllTanks();
             SetCameraTargets();
 
-            // Once the tanks have been created and the camera is using them as targets, start the game.
-            StartCoroutine (GameLoop ());
+            // Network matches end from a server message instead of the local round winner loop.
+            if (m_IsNetworkMatch)
+            {
+                StartCoroutine(NetworkGameLoop());
+            }
+            else
+            {
+                StartCoroutine(GameLoop());
+            }
         }
 
         void ChangeGameState(GameState newState)
@@ -103,9 +115,113 @@ namespace Tanks.Complete
         // Called by the menu, passing along the data from the selection made by the player in the menu
         public void StartGame(PlayerData[] playerData)
         {
+            m_IsNetworkMatch = false;
             m_TankData = playerData;
             m_PlayerCount = m_TankData.Length;
             ChangeGameState(GameState.Game);
+        }
+
+        public void StartNetworkGame(PlayerData[] playerData)
+        {
+            if (playerData == null)
+            {
+                throw new System.ArgumentNullException(nameof(playerData));
+            }
+
+            if (playerData.Length < 2 || playerData.Length > 4)
+            {
+                throw new System.ArgumentOutOfRangeException(
+                    nameof(playerData),
+                    "A network match requires between 2 and 4 players.");
+            }
+
+            m_RoundNumber = 0;
+            m_RoundWinner = null;
+            m_GameWinner = null;
+            m_IsNetworkMatch = true;
+            m_TankData = playerData;
+            m_PlayerCount = m_TankData.Length;
+            ChangeGameState(GameState.Game);
+        }
+
+        public void EndNetworkGame(string winnerLoginId)
+        {
+            if (!m_IsNetworkMatch)
+            {
+                return;
+            }
+
+            string title =
+                string.IsNullOrWhiteSpace(winnerLoginId)
+                ? "MATCH ENDED"
+                : $"{winnerLoginId} WINS THE MATCH!";
+
+            FinishNetworkGame(title);
+        }
+
+        public void CancelNetworkGame()
+        {
+            if (!m_IsNetworkMatch)
+            {
+                return;
+            }
+
+            FinishNetworkGame(string.Empty);
+        }
+
+        private void FinishNetworkGame(string title)
+        {
+            StopAllCoroutines();
+
+            if (m_CameraControl != null)
+            {
+                m_CameraControl.m_Targets =
+                    System.Array.Empty<Transform>();
+            }
+
+            for (int index = 0;
+                 index < m_SpawnPoints.Length;
+                 index++)
+            {
+                TankManager tank =
+                    m_SpawnPoints[index];
+
+                if (tank.m_Instance != null)
+                {
+                    tank.m_Instance.SetActive(false);
+                    Destroy(tank.m_Instance);
+                    tank.m_Instance = null;
+                }
+
+                tank.m_NetworkRemote = false;
+                tank.m_LoginId = null;
+                tank.m_ComputerControlled = false;
+                tank.m_Wins = 0;
+            }
+
+            ShellExplosion[] shells =
+                FindObjectsByType<ShellExplosion>(
+                    FindObjectsInactive.Include);
+
+            foreach (ShellExplosion shell in shells)
+            {
+                Destroy(shell.gameObject);
+            }
+
+            m_TankData =
+                System.Array.Empty<PlayerData>();
+
+            m_PlayerCount = 0;
+            m_RoundNumber = 0;
+            m_RoundWinner = null;
+            m_GameWinner = null;
+            m_IsNetworkMatch = false;
+            m_CurrentState = GameState.MainMenu;
+
+            if (m_TitleText != null)
+            {
+                m_TitleText.text = title;
+            }
         }
 
 
@@ -130,6 +246,8 @@ namespace Tanks.Complete
                 m_SpawnPoints[i].ControlIndex = playerData.ControlIndex;
                 m_SpawnPoints[i].m_PlayerColor = playerData.TankColor;
                 m_SpawnPoints[i].m_ComputerControlled = playerData.IsComputer;
+                m_SpawnPoints[i].m_NetworkRemote = playerData.IsRemote;
+                m_SpawnPoints[i].m_LoginId = playerData.LoginId;
             }
 
             //we delayed setup after all tanks are created as they expect to have access to all other tanks in the manager
@@ -184,6 +302,14 @@ namespace Tanks.Complete
                 // Note that this coroutine doesn't yield.  This means that the current version of the GameLoop will end.
                 StartCoroutine (GameLoop ());
             }
+        }
+
+        private IEnumerator NetworkGameLoop()
+        {
+            yield return StartCoroutine(RoundStarting());
+
+            EnableTankControl();
+            m_TitleText.text = string.Empty;
         }
 
 

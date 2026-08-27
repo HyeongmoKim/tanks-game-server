@@ -24,6 +24,9 @@ namespace Tanks.Complete
         [HideInInspector] public GameObject m_Instance;         // A reference to the instance of the tank when it is created.
         [HideInInspector] public int m_Wins;                    // The number of wins this player has so far.
         [HideInInspector] public bool m_ComputerControlled;     // Is that tank computer controlled
+        //
+        [HideInInspector] public string m_LoginId;               // Login ID of the player represented by this tank.
+        [HideInInspector] public bool m_NetworkRemote;           // Is this tank controlled by another network client.
         
         public int ControlIndex { get; set; } = 1;              //this defines the index of the control 1 = left keyboard or pad, 2 = right keyboard, -1 = no control
 
@@ -45,8 +48,11 @@ namespace Tanks.Complete
 
             // Assign the Input User of that Tank to the script controlling input system binding, so the move/fire actions
             // get only triggered by the right input for that users (e.g. arrow doesn't trigger move if that input user use WASD)
-            var inputUser = m_Instance.GetComponent<TankInputUser>();
-            inputUser.SetNewInputUser(m_InputUser);
+            if (!m_NetworkRemote)
+            {
+                TankInputUser inputUser = m_Instance.GetComponent<TankInputUser>();
+                inputUser.SetNewInputUser(m_InputUser);
+            }
 
             // Toggle computer controlled on the movement/firing if this tank was tagged as being computer controlled
             m_Movement.m_IsComputerControlled = m_ComputerControlled;
@@ -58,9 +64,23 @@ namespace Tanks.Complete
             m_Movement.ControlIndex = ControlIndex;
 
             // If this tank is computer controlled, add a TankAI component that take care of controlling the behavior
-            if(m_ComputerControlled)
+            if (m_NetworkRemote)
             {
-                m_AI = m_Instance.AddComponent<TankAI>();
+                if (m_AI != null)
+                {
+                    m_AI.enabled = false;
+                }
+
+                m_Movement.enabled = false;
+                m_Shooting.enabled = false;
+            }
+            else if (m_ComputerControlled)
+            {
+                if (m_AI == null)
+                {
+                    m_AI = m_Instance.AddComponent<TankAI>();
+                }
+
                 m_AI.Setup(manager);
             }
             
@@ -102,10 +122,27 @@ namespace Tanks.Complete
         // Used during the phases of the game where the player should be able to control their tank.
         public void EnableControl ()
         {
+            if (m_NetworkRemote)
+            {
+                m_Movement.enabled = false;
+                m_Shooting.enabled = false;
+
+                if (m_AI != null)
+                {
+                    m_AI.enabled = false;
+                }
+
+                m_CanvasGameObject.SetActive(true);
+                return;
+            }
+
             m_Movement.enabled = true;
             m_Shooting.enabled = true;
-            if(m_ComputerControlled)
+
+            if (m_ComputerControlled && m_AI != null)
+            {
                 m_AI.enabled = true;
+            }
 
             m_CanvasGameObject.SetActive (true);
         }

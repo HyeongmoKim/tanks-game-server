@@ -1,9 +1,12 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 namespace Tanks.Complete
 {
     public class ShellExplosion : MonoBehaviour
     {
+        //하나의 폭탄은 한번만 폭발
+        private bool m_Exploded;
         public LayerMask m_TankMask;                        // Used to filter what the explosion affects, this should be set to "Players".
         public ParticleSystem m_ExplosionParticles;         // Reference to the particles that will play on explosion.
         public AudioSource m_ExplosionAudio;                // Reference to the audio that will play on explosion.
@@ -21,56 +24,79 @@ namespace Tanks.Complete
             Destroy (gameObject, m_MaxLifeTime);
         }
 
-
-        private void OnTriggerEnter (Collider other)
+        //포탄이 충돌하면 폭발 범위 안의 탱크를 찾아 피해와 폭발 힘을 적용한다.
+        private void OnTriggerEnter(Collider other)
         {
-			// Collect all the colliders in a sphere from the shell's current position to a radius of the explosion radius.
-            Collider[] colliders = Physics.OverlapSphere (transform.position, m_ExplosionRadius, m_TankMask);
-
-            // Go through all the colliders...
-            for (int i = 0; i < colliders.Length; i++)
+            if (m_Exploded)
             {
-                // ... and find their rigidbody.
-                Rigidbody targetRigidbody = colliders[i].GetComponent<Rigidbody> ();
-
-                // If they don't have a rigidbody, go on to the next collider.
-                if (!targetRigidbody)
-                    continue;
-
-                // Add an explosion force.
-                targetRigidbody.GetComponent<TankMovement>().AddExplosionForce(m_ExplosionForce, transform.position, m_ExplosionRadius);
-
-                // Find the TankHealth script associated with the rigidbody.
-                TankHealth targetHealth = targetRigidbody.GetComponent<TankHealth> ();
-
-                // If there is no TankHealth script attached to the gameobject, go on to the next collider.
-                if (!targetHealth)
-                    continue;
-
-                // Calculate the amount of damage the target should take based on it's distance from the shell.
-                float damage = CalculateDamage (targetRigidbody.position);
-
-                // Deal this damage to the tank.
-                targetHealth.TakeDamage (damage);
+                return;
             }
 
-            // Unparent the particles from the shell.
+            m_Exploded = true;
+            // 처음 충돌한 대상 뿐만 아니라 반경 안의 모든 탱크를 찾음
+            Collider[] colliders =
+                Physics.OverlapSphere(
+                    transform.position,
+                    m_ExplosionRadius,
+                    m_TankMask);
+
+            //같은 포탄의 피해는 한번만
+            HashSet<TankHealth> damagedTanks = new();
+
+            foreach (Collider hit in colliders)
+            {
+                Rigidbody targetRigidbody =
+                    hit.attachedRigidbody; //자식 Collider에서 탱크 본체에 연결된 rigidbody 가져옴
+
+                if (targetRigidbody == null)
+                {
+                    continue;
+                }
+
+                TankHealth targetHealth =
+                    targetRigidbody.GetComponent<TankHealth>();
+
+                //피해 판정 권한이 있는 탱크만 처리
+                if (targetHealth == null ||
+                    !targetHealth.HasDamageAuthority ||
+                    !damagedTanks.Add(targetHealth))
+                {
+                    continue;
+                }
+
+                //폭발힘도 로컬 소유 탱크에만 적용하여 위치충돌 막음
+                TankMovement targetMovement =
+                    targetRigidbody.GetComponent<TankMovement>();
+
+                if (targetMovement != null)
+                {
+                    targetMovement.AddExplosionForce(
+                        m_ExplosionForce,
+                        transform.position,
+                        m_ExplosionRadius);
+                }
+
+                float damage =
+                    CalculateDamage(
+                        targetRigidbody.position);
+
+                targetHealth.TakeDamage(damage);
+            }
+
+            //파괴된 뒤에도 폭발 입자와 소리가 끝까지 재생되게 분리 
             m_ExplosionParticles.transform.parent = null;
-
-            // Play the particle system.
             m_ExplosionParticles.Play();
-
-            // Play the explosion sound effect.
             m_ExplosionAudio.Play();
 
-            // Once the particles have finished, destroy the gameobject they are on.
-            ParticleSystem.MainModule mainModule = m_ExplosionParticles.main;
-            Destroy (m_ExplosionParticles.gameObject, mainModule.duration);
+            ParticleSystem.MainModule mainModule =
+                m_ExplosionParticles.main;
 
-            // Destroy the shell.
-            Destroy (gameObject);
+            Destroy(
+                m_ExplosionParticles.gameObject,
+                mainModule.duration);
+
+            Destroy(gameObject);
         }
-
 
         private float CalculateDamage (Vector3 targetPosition)
         {

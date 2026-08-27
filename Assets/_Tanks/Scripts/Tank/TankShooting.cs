@@ -1,11 +1,37 @@
 ﻿using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
-
+using System;
 namespace Tanks.Complete
 {
+    public readonly struct TankFireData
+    {
+        // 다른 클라이언트에서 재현하기 위해 발사의 값을 묶어 전달
+        public TankFireData(
+            Vector3 position,
+            Vector3 velocity,
+            float maxDamage,
+            float explosionForce,
+            float explosionRadius)
+        {
+            Position = position;
+            Velocity = velocity;
+            MaxDamage = maxDamage;
+            ExplosionForce = explosionForce;
+            ExplosionRadius = explosionRadius;
+        }
+
+        public Vector3 Position { get; }
+        public Vector3 Velocity { get; }
+        public float MaxDamage { get; }
+        public float ExplosionForce { get; }
+        public float ExplosionRadius { get; }
+    }
+
     public class TankShooting : MonoBehaviour
     {
+        //로컬 발사했을때 네트워크에 발사정보를 알린다.
+        public event Action<TankFireData> LocalShellFired;
         public Rigidbody m_Shell;                   // Prefab of the shell.
         public Transform m_FireTransform;           // A child of the tank where the shells are spawned.
         public Slider m_AimSlider;                  // A child of the tank that displays the current launch force.
@@ -193,48 +219,121 @@ namespace Tanks.Complete
         }
 
 
-        private void Fire ()
+        //로컬 포탄 생성 후 발사값을 네트워크 전송용 이벤트로
+        private void Fire()
         {
-            // Set the fired flag so only Fire is only called once.
             m_Fired = true;
+            //특수 포탄효과 반영한 포탄의 피해량
+            float shellDamage = m_MaxDamage;
 
-            // Create an instance of the shell and store a reference to it's rigidbody.
-            Rigidbody shellInstance =
-                Instantiate (m_Shell, m_FireTransform.position, m_FireTransform.rotation) as Rigidbody;
-
-            // Set the shell's velocity to the launch force in the fire position's forward direction.
-            shellInstance.linearVelocity = m_CurrentLaunchForce * m_FireTransform.forward;
-
-            ShellExplosion explosionData = shellInstance.GetComponent<ShellExplosion>();
-            explosionData.m_ExplosionForce = m_ExplosionForce;
-            explosionData.m_ExplosionRadius = m_ExplosionRadius;
-            explosionData.m_MaxDamage = m_MaxDamage;
-            
-            // Increase the damage if extra damage PowerUp is active
             if (m_HasSpecialShell)
             {
-                explosionData.m_MaxDamage *= m_SpecialShellMultiplier;
-                // Reset the default values after increasing the damage of the fired shell
+                shellDamage *= m_SpecialShellMultiplier;
+
                 m_HasSpecialShell = false;
                 m_SpecialShellMultiplier = 1f;
-                
-                PowerUpDetector powerUpDetector = GetComponent<PowerUpDetector>();
-                if (powerUpDetector != null)
-                    powerUpDetector.m_HasActivePowerUp = false;
 
-                PowerUpHUD powerUpHUD = GetComponentInChildren<PowerUpHUD>();
+                PowerUpDetector powerUpDetector =
+                    GetComponent<PowerUpDetector>();
+
+                if (powerUpDetector != null)
+                {
+                    powerUpDetector.m_HasActivePowerUp = false;
+                }
+
+                PowerUpHUD powerUpHUD =
+                    GetComponentInChildren<PowerUpHUD>();
+
                 if (powerUpHUD != null)
+                {
                     powerUpHUD.DisableActiveHUD();
+                }
             }
 
-            // Change the clip to the firing clip and play it.
+            Vector3 shellPosition =
+                m_FireTransform.position;
+
+            Quaternion shellRotation =
+                m_FireTransform.rotation;
+
+            Vector3 shellVelocity =
+                m_CurrentLaunchForce *
+                m_FireTransform.forward;
+
+            SpawnShell(
+                shellPosition,
+                shellRotation,
+                shellVelocity,
+                shellDamage,
+                m_ExplosionForce,
+                m_ExplosionRadius);
+
+            // 로컬에서만 이벤트를 발생시켜 원격재생이 다시 서버로 전송되는 거 막음
+            LocalShellFired?.Invoke(
+                new TankFireData(
+                    shellPosition,
+                    shellVelocity,
+                    shellDamage,
+                    m_ExplosionForce,
+                    m_ExplosionRadius));
+
             m_ShootingAudio.clip = m_FireClip;
-            m_ShootingAudio.Play ();
+            m_ShootingAudio.Play();
 
-            // Reset the launch force.  This is a precaution in case of missing button events.
             m_CurrentLaunchForce = m_MinLaunchForce;
-
             m_ShotCooldownTimer = m_ShotCooldown;
+        }
+
+        //로컬 발사와 원격 발사가 동일방식으로 포탄을 생성
+        private void SpawnShell(
+            Vector3 position,
+            Quaternion rotation,
+            Vector3 velocity,
+            float maxDamage,
+            float explosionForce,
+            float explosionRadius)
+        {
+            Rigidbody shellInstance =
+                Instantiate(
+                    m_Shell,
+                    position,
+                    rotation);
+
+            shellInstance.linearVelocity = velocity;
+
+            ShellExplosion explosionData =
+                shellInstance.GetComponent<ShellExplosion>();
+
+            explosionData.m_MaxDamage = maxDamage;
+            explosionData.m_ExplosionForce = explosionForce;
+            explosionData.m_ExplosionRadius = explosionRadius;
+        }
+
+        //서버에서 받은 상대의 발사를 재현하여 로컬 발사 이벤트는 발생안시킴
+        public void ReplayNetworkFire(
+            Vector3 position,
+            Vector3 velocity,
+            float maxDamage,
+            float explosionForce,
+            float explosionRadius)
+        {
+            // 속도가 작으면 방향계산이 힘들어 회전을 대신 사용
+            Quaternion rotation =
+                velocity.sqrMagnitude > 0.0001f
+                    ? Quaternion.LookRotation(
+                        velocity.normalized)
+                    : m_FireTransform.rotation;
+
+            SpawnShell(
+                position,
+                rotation,
+                velocity,
+                maxDamage,
+                explosionForce,
+                explosionRadius);
+
+            m_ShootingAudio.clip = m_FireClip;
+            m_ShootingAudio.Play();
         }
 
 

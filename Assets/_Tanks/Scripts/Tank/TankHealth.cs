@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using UnityEngine.UI;
+using System;
 
 namespace Tanks.Complete
 {
@@ -12,8 +13,13 @@ namespace Tanks.Complete
         public Color m_ZeroHealthColor = Color.red;      // The color the health bar will be when on no health.
         public GameObject m_ExplosionPrefab;                // A prefab that will be instantiated in Awake, then used whenever the tank dies.
         [HideInInspector] public bool m_HasShield;          // Has the tank picked up a shield power up?
-        
-        
+        // 체력 바뀌면 네트워크에 알림
+        public event Action<float, bool> HealthChanged;
+        //살아있는 탱크만 피해와 회복을 계산
+        public bool HasDamageAuthority { get; private set; } = true;
+        //네트워크 전송에 사용할 현재 체력과 사망 상태를 읽기전용
+        public float CurrentHealth => m_CurrentHealth;
+        public bool IsDead => m_Dead;                
         private AudioSource m_ExplosionAudio;               // The audio source to play when the tank explodes.
         private ParticleSystem m_ExplosionParticles;        // The particle system the will play when the tank is destroyed.
         private float m_CurrentHealth;                      // How much health the tank currently has.
@@ -54,49 +60,131 @@ namespace Tanks.Complete
             // Update the health slider's value and color.
             SetHealthUI();
         }
-
-
-        public void TakeDamage (float amount)
+        //로컬 탱크에만 피해 판정 권한
+        public void SetDamageAuthority(
+            bool hasAuthority)
         {
-            // Check if the tank is not invincible
-            if (!m_IsInvincible)
-            {
-                // Reduce current health by the amount of damage done.
-                m_CurrentHealth -= amount * (1 - m_ShieldValue);
-
-                // Change the UI elements appropriately.
-                SetHealthUI ();
-
-                // If the current health is at or below zero and it has not yet been registered, call OnDeath.
-                if (m_CurrentHealth <= 0f && !m_Dead)
-                {
-                    OnDeath ();
-                }
-            }
+            HasDamageAuthority = hasAuthority;
         }
 
+        //서버에 전달된 원격 탱크의 생존 상태를 화면에 반영
+        public void ApplyNetworkState(
+            float health,
+            bool alive)
+        {
+            //로컬과 죽은 탱크는 적용하지 않음
+            if (HasDamageAuthority ||
+                m_Dead ||
+                float.IsNaN(health) ||
+                float.IsInfinity(health))
+            {
+                return;
+            }
 
+            m_CurrentHealth =
+                alive
+                    ? Mathf.Clamp(
+                        health,
+                        0f,
+                        m_StartingHealth)
+                    : 0f;
+
+            SetHealthUI();
+
+            if (!alive ||
+                m_CurrentHealth <= 0f)
+            {
+                OnDeath();
+            }
+        }
+        //player_dead 메시지도 사망처리와 같은 경로
+        public void ApplyNetworkDeath()
+        {
+            ApplyNetworkState(0f, false);
+        }
+
+        //로컬 탱크만 피해를 계산하고 결과를 이벤트로
+        public void TakeDamage(float amount)
+        {
+            if (!HasDamageAuthority ||
+                m_Dead ||
+                m_IsInvincible ||
+                amount <= 0f ||
+                float.IsNaN(amount) ||
+                float.IsInfinity(amount))
+            {
+                return;
+            }
+
+            float previousHealth =
+                m_CurrentHealth;
+
+            m_CurrentHealth =
+                Mathf.Max(
+                    0f,
+                    m_CurrentHealth -
+                    amount * (1f - m_ShieldValue));
+
+            if (Mathf.Approximately(
+                    previousHealth,
+                    m_CurrentHealth))
+            {
+                return;
+            }
+
+            SetHealthUI();
+            //사망을 확정해야 죽음 값이 나옴
+            if (m_CurrentHealth <= 0f)
+            {
+                OnDeath();
+            }
+
+            HealthChanged?.Invoke(
+                m_CurrentHealth,
+                !m_Dead);
+        }
+
+        //탱크를 소유한 클라이언트에서만 계산한 뒤 다른 클라에 동기화
         public void IncreaseHealth(float amount)
         {
-            // Check if adding the amount would keep the health within the maximum limit
-            if (m_CurrentHealth + amount <= m_StartingHealth)
+            if (!HasDamageAuthority ||
+                m_Dead ||
+                amount <= 0f ||
+                float.IsNaN(amount) ||
+                float.IsInfinity(amount))
             {
-                // If the new health value is within the limit, add the amount
-                m_CurrentHealth += amount;
-            }
-            else
-            {
-                // If the new health exceeds the starting health, set it at the maximum
-                m_CurrentHealth = m_StartingHealth;
+                return;
             }
 
-            // Change the UI elements appropriately.
+            float previousHealth =
+                m_CurrentHealth;
+
+            m_CurrentHealth =
+                Mathf.Min(
+                    m_StartingHealth,
+                    m_CurrentHealth + amount);
+
+            if (Mathf.Approximately(
+                    previousHealth,
+                    m_CurrentHealth))
+            {
+                return;
+            }
+
             SetHealthUI();
+
+            HealthChanged?.Invoke(
+                m_CurrentHealth,
+                true);
         }
 
-
+        //원격의 방어 상태가 이 클라이언트의 파워업 충돌로 변경되는 것을 막음 
         public void ToggleShield (float shieldAmount)
         {
+            if (!HasDamageAuthority || m_Dead)
+            {
+                return;
+            }
             // Inverts the value of has shield.
             m_HasShield = !m_HasShield;
 
@@ -111,8 +199,13 @@ namespace Tanks.Complete
             }
         }
 
+        //무적상태도 소유 클라이언트에서만
         public void ToggleInvincibility()
         {
+            if (!HasDamageAuthority || m_Dead)
+            {
+                return;
+            }
             m_IsInvincible = !m_IsInvincible;
         }
 
@@ -126,24 +219,24 @@ namespace Tanks.Complete
             m_FillImage.color = Color.Lerp (m_ZeroHealthColor, m_FullHealthColor, m_CurrentHealth / m_StartingHealth);
         }
 
-
-        private void OnDeath ()
+        //체력 패킷과 사망 패킷이 같이와도 사망연출은 한번만
+        private void OnDeath()
         {
-            // Set the flag so that this function is only called once.
+            if (m_Dead)
+            {
+                return;
+            }
+
             m_Dead = true;
 
-            // Move the instantiated explosion prefab to the tank's position and turn it on.
-            m_ExplosionParticles.transform.position = transform.position;
-            m_ExplosionParticles.gameObject.SetActive (true);
+            m_ExplosionParticles.transform.position =
+                transform.position;
 
-            // Play the particle system of the tank exploding.
-            m_ExplosionParticles.Play ();
-
-            // Play the tank explosion sound effect.
+            m_ExplosionParticles.gameObject.SetActive(true);
+            m_ExplosionParticles.Play();
             m_ExplosionAudio.Play();
 
-            // Turn the tank off.
-            gameObject.SetActive (false);
+            gameObject.SetActive(false);
         }
     }
 }
