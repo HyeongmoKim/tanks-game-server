@@ -28,7 +28,7 @@ spec:
 
       containers:
         - name: tanks-server
-          image: 471507663179.dkr.ecr.ap-northeast-2.amazonaws.com/tanks-server-dev:7aa9c3c1dc869a5f2b72904c50fe2bbf17f62b76
+          image: 471507663179.dkr.ecr.ap-northeast-2.amazonaws.com/tanks-server-dev:e9284d14356faab14081bd9549894f934f019124
           imagePullPolicy: IfNotPresent
 
           securityContext:
