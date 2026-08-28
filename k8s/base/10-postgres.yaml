@@ -1,0 +1,168 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-headless
+  namespace: tanks
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: tanks
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: tanks
+spec:
+  serviceName: postgres-headless
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+
+    spec:
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: postgres
+          image: postgres:18.4-alpine3.23
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: tanks-db
+                  key: POSTGRES_DB
+
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: tanks-db
+                  key: POSTGRES_USER
+
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tanks-db
+                  key: POSTGRES_PASSWORD
+
+            - name: POSTGRES_INITDB_ARGS
+              value: "--auth-host=scram-sha-256"
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql
+
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d/001_create_players.sql
+              subPath: 001_create_players.sql
+              readOnly: true
+
+            - name: shared-memory
+              mountPath: /dev/shm
+
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 5
+            failureThreshold: 30
+
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 10
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+      volumes:
+        - name: postgres-init
+          configMap:
+            name: postgres-init
+
+        - name: shared-memory
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOncePod
+        storageClassName: gp3-encrypted
+        resources:
+          requests:
+            storage: 5Gi

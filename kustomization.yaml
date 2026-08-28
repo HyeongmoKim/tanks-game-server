@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tanks
+
+resources:
+  - k8s/base/00-foundation.yaml
+  - k8s/base/10-postgres.yaml
+  - k8s/base/20-server.yaml
+
+configMapGenerator:
+  - name: postgres-init
+    namespace: tanks
+    files:
+      - 001_create_players.sql=db/migrations/001_create_players.sql
+
+generatorOptions:
+  disableNameSuffixHash: true

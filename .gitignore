@@ -118,8 +118,9 @@ InitTestScene*.unity*
 crash.log
 crash.*.log
 
-# Unity Profiler captures
 /ProfilerCaptures/
 
-# JetBrains project settings
 /.idea/
+
+/LoadTest/**/[Bb]in/
+/LoadTest/**/[Oo]bj/

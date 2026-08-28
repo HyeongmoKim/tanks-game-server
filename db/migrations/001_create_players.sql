@@ -1,7 +1,9 @@
-$SecureDbPassword = Read-Host "tanks_app 비밀번호 입려" -AsSecureString
-$DbPassword = [System.Net.NetworkCredential]::new("", $SecureDbPassword).Password
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-docker run --rm --name tanks-server-local `
-  -p 7777:7777 `
-  -e "TANKS_DB_CONNECTION_STRING=Host=host.docker.internal;Port=5432;Database=tanks_game;Username=tanks_app;Password=$DbPassword;SSL Mode=Disable" `
-  tanks-server:local
+CREATE TABLE IF NOT EXISTS players (
+    player_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    login_id   VARCHAR(32) NOT NULL UNIQUE,
+    wins       INTEGER NOT NULL DEFAULT 0 CHECK (wins >= 0),
+    losses     INTEGER NOT NULL DEFAULT 0 CHECK (losses >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

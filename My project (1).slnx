@@ -1,4 +1,7 @@
-﻿<Solution>
+<Solution>
   <Project Path="Assembly-CSharp.csproj" />
+  <Folder Name="/LoadTest/">
+    <Project Path="LoadTest/Tanks.LoadTest/Tanks.LoadTest.csproj" />
+  </Folder>
   <Project Path="Assembly-CSharp-Editor.csproj" />
 </Solution>

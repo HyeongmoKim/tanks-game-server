@@ -13,13 +13,35 @@ const int MaximumChatLength = 500;
 //환경 변수의 연결 문자열로 PostgreSQL 연결 풀을 생성하고 서버 종료 시 비동기로 정리
 await using NpgsqlDataSource dataSource =
     Database.CreateDataSource();
-//실제 연결을 한 번 열어 데이터베이스 설정 오류를 서버 시작 단계에서 확인
-await using (NpgsqlConnection connection =
-             await dataSource.OpenConnectionAsync())
-{
-    Console.WriteLine("PostgreSQL 연결 성공");
-}
+// PostgreSQL이 아직 시작 중이면 간격을 늘려가며 다시 연결한다.
+const int DatabaseConnectionMaxAttempts = 8;
 
+for (int attempt = 1; ; attempt++)
+{
+    try
+    {
+        await using NpgsqlConnection connection =
+            await dataSource.OpenConnectionAsync();
+
+        Console.WriteLine("PostgreSQL 연결 성공");
+        break;
+    }
+    catch (NpgsqlException exception)
+        when (attempt < DatabaseConnectionMaxAttempts)
+    {
+        int delaySeconds =
+            Math.Min(1 << (attempt - 1), 10);
+
+        Console.WriteLine(
+            $"PostgreSQL 연결 실패 " +
+            $"({attempt}/{DatabaseConnectionMaxAttempts}). " +
+            $"{delaySeconds}초 후 재시도: " +
+            exception.Message);
+
+        await Task.Delay(
+            TimeSpan.FromSeconds(delaySeconds));
+    }
+}
 //플레이어 조회, 생성, 전적 저장을 담당하는 Repository 생성
 PlayerRepository playerRepository = new(dataSource);
 
