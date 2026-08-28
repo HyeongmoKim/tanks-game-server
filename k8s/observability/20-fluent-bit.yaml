@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: amazon-cloudwatch
+  labels:
+    app: fluent-bit
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit
+
+  updateStrategy:
+    type: RollingUpdate
+
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+    spec:
+      serviceAccountName: fluent-bit
+      terminationGracePeriodSeconds: 30
+
+      tolerations:
+        - operator: Exists
+
+      containers:
+        - name: fluent-bit
+          image: public.ecr.aws/aws-observability/aws-for-fluent-bit:3.4.11
+          imagePullPolicy: IfNotPresent
+
+          env:
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
+
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc/fluent-bit.conf
+              subPath: fluent-bit.conf
+              readOnly: true
+
+            - name: config
+              mountPath: /fluent-bit/etc/application-log.conf
+              subPath: application-log.conf
+              readOnly: true
+
+            - name: host-logs
+              mountPath: /var/log
+              readOnly: true
+
+            - name: state
+              mountPath: /var/fluent-bit/state
+
+      volumes:
+        - name: config
+          configMap:
+            name: fluent-bit-config
+
+        - name: host-logs
+          hostPath:
+            path: /var/log
+            type: Directory
+
+        - name: state
+          emptyDir: {}
